@@ -1,0 +1,26 @@
+Controller: MPC + LQR
+
+LATERAL:
+  RMS CTE            : 0.0684 m
+  Peak CTE           : 0.2057 m
+  RMS heading error  : 2.268 deg
+  REQ-1 (<0.6m)      : PASS
+
+LONGITUDINAL:
+  RMS speed error    : 0.0573 m/s
+  Peak speed error   : 0.6353 m/s
+  Peak lon deviation : 0.3979 m
+  RMS lon deviation  : 0.1351 m
+  REQ-1 (<0.8m)      : PASS
+
+TIMING:
+  Control loop       : 0.050 s (20 Hz)
+  Mean exec time     : 0.001477 s (1.477 ms)
+  Max exec time      : 0.016443 s (16.443 ms)
+  Real-time OK       : YES
+
+GENERAL:
+  Loop time          : 137.30 s
+  Goal reached       : 1
+  Termination        : goal_reached
+  Run directory      : C:\Controller_GDP\run\20260416_105125_mpc_lqr

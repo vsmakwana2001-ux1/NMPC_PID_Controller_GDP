@@ -1,0 +1,16 @@
+Controller: NMPC + PID
+
+LATERAL:
+  Mean CTE           : 0.0913 m
+  Max CTE            : 0.3436 m
+
+LONGITUDINAL:
+  Mean lon deviation : 1.4356 m
+  Max lon deviation  : 2.6091 m
+
+TIMING:
+  Control loop       : 0.100 s (10 Hz)
+  Mean exec time     : 0.004184 s (4.184 ms)
+  Max exec time      : 0.006638 s (6.638 ms)
+  Std exec time      : 0.000500 s
+  Loop time          : 133.90 s

@@ -1,0 +1,27 @@
+# MATLAB temporary/autosave files
+*.asv
+*.m~
+*.mex*
+*.log
+
+# Simulink generated/cache folders
+slprj/
+*_ert_rtw/
+*_grt_rtw/
+codegen/
+simulink_cache/
+simulink_codegen/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large generated output files
+*.mat
+*.fig
+*.avi
+*.mp4
+
+# Editor folders
+.vscode/
+.idea/
