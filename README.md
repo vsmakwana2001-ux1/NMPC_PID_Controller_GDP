@@ -1,3 +1,4 @@
+
 # ControllerMatlab
 
 MATLAB closed-loop path-following framework for the Cranfield Kia Niro automated vehicle platform (GDP 2026).
@@ -477,3 +478,7 @@ Two practical notes are worth keeping in mind:
 - run labels previously did not clearly include the lateral plant type, which made dynamic vs bicycle-linear comparisons easy to misread
 
 Both are now aligned with the current codebase.
+
+# NMPC_PID_Controller_GDP
+NMPC and PID based vehicle controller for MSc GDP project
+
