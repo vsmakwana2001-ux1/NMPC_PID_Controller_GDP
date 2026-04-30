@@ -10,7 +10,7 @@ This repository implements a decoupled vehicle control architecture using:
 - Lookup-based longitudinal actuator modelling for throttle and brake behaviour
 
 ROS2 node repository:
-`https://github.com/YuxuanCAVE/vehicle_controller`
+`(https://github.com/vsmakwana2001-ux1/ROS2_NMPC_PID_Vehicle_Controller.git)`
 
 ---
 
