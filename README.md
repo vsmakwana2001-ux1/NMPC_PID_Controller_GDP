@@ -1,14 +1,41 @@
+# NMPC PID Controller GDP
 
-# ControllerMatlab
+MATLAB closed-loop path-following framework for the Cranfield Kia Niro automated vehicle platform, developed for the MSc GDP project.
 
-MATLAB closed-loop path-following framework for the Cranfield Kia Niro automated vehicle platform (GDP 2026).
+This repository implements a decoupled vehicle control architecture using:
+
+- Nonlinear Model Predictive Control (NMPC) for lateral path tracking
+- PID control for longitudinal speed tracking
+- A vehicle plant model for closed-loop simulation
+- Lookup-based longitudinal actuator modelling for throttle and brake behaviour
 
 ROS2 node repository:
 `https://github.com/YuxuanCAVE/vehicle_controller`
 
+---
+
 ## Overview
 
-This repository simulates a decoupled lateral and longitudinal control stack on a coupled bicycle-model vehicle plant. The current baseline is:
+The project simulates a closed-loop autonomous vehicle control system in MATLAB.
+
+The control structure is separated into:
+
+1. **Lateral control**
+   - Tracks the reference path.
+   - Uses NMPC based on a kinematic bicycle model.
+   - Outputs the steering command.
+
+2. **Longitudinal control**
+   - Tracks the reference speed.
+   - Uses a PID controller.
+   - Outputs the desired longitudinal acceleration.
+
+3. **Plant model**
+   - Simulates the vehicle response to steering, throttle, and brake commands.
+   - Includes lateral vehicle dynamics and longitudinal force-balance behaviour.
+   - Allows controller performance to be tested before ROS2 implementation.
+
+The current baseline setup is:
 
 - lateral controller: `mpc_kinematic`
 - longitudinal controller: `pid`
@@ -16,11 +43,19 @@ This repository simulates a decoupled lateral and longitudinal control stack on 
 - longitudinal actuator model: 1D lookup inversion plus 1D forward execution
 - outputs: run directory with metrics, plots, and optional simulation-vs-bag comparison
 
-The active defaults are always defined in [config/default_config.m](/f:/Controller_GDP/config/default_config.m). If this README and the code ever diverge, trust the code.
+The active default configuration is defined in:
+
+```matlab
+config/default_config.m
+```
+
+If this README and the code ever differ, trust the code.
+
+---
 
 ## Current Default Setup
 
-The current default selection is:
+The current default controller and plant selection is:
 
 ```matlab
 cfg.controller.lateral = "mpc_kinematic";
@@ -28,7 +63,7 @@ cfg.controller.longitudinal = "pid";
 cfg.plant.lateral_model = "dynamic";   % "dynamic" | "bicycle_linear"
 ```
 
-Other important active defaults:
+Important simulation defaults:
 
 ```matlab
 cfg.sim.dt = 0.1;
@@ -45,7 +80,7 @@ cfg.vehicle.delay.steer_s = 0.1;
 cfg.vehicle.delay.longitudinal_s = 0.1;
 ```
 
-Current `mpc_kinematic` baseline:
+Current NMPC baseline:
 
 ```matlab
 cfg.mpc_kinematic.N = 16;
@@ -65,38 +100,236 @@ cfg.lon_pid.ki = 0.0;
 cfg.lon_pid.kd = 0.0;
 ```
 
-## Controllers And Plant Options
+---
 
-### Lateral Controllers
+## Control Architecture
 
-| Item | Type | Notes |
-|---|---|---|
-| `stanley` | Controller | Heading plus cross-track feedback |
-| `pure_pursuit` | Controller | Geometric lookahead steering |
-| `mpc` | Controller | Dynamic-state lateral MPC |
-| `mpc_kinematic` | Controller | Kinematic bicycle MPC with curvature preview |
-| `mpc_combined` | Controller | Combined steering and acceleration MPC |
-| `fake_controller` | Controller | Debug mode for isolating subsystems |
+The overall controller is divided into two main parts:
 
-### Longitudinal Controllers
+```text
+Reference path  -> NMPC lateral controller -> Steering command
+Reference speed -> PID longitudinal control -> Desired acceleration
+```
 
-| Item | Type | Notes |
-|---|---|---|
-| `pid` | Controller | PID on speed error, output is net `a_des` |
-| `fake_controller` | Controller | Debug mode for isolating subsystems |
+The plant then converts these commands into vehicle motion:
 
-### Lateral Plant Models
+```text
+Steering command + longitudinal force
+        -> vehicle plant model
+        -> vehicle position, yaw, velocity, and tracking errors
+```
 
-| Item | Type | Notes |
-|---|---|---|
-| `dynamic` | Plant | Nonlinear tire-force model through `lateral_tire_model.m` |
-| `bicycle_linear` | Plant | Linear bicycle tire-force model with force saturation |
+---
 
-Set the plant in [config/default_config.m](/f:/Controller_GDP/config/default_config.m):
+## Lateral NMPC Controller
+
+The lateral controller is responsible for keeping the vehicle close to the reference path.
+
+The controller uses a kinematic bicycle model to predict the future motion of the vehicle over a finite prediction horizon.
+
+The lateral state is generally represented as:
+
+```matlab
+x = [X, Y, psi]
+```
+
+where:
+
+- `X` is the global x-position of the vehicle
+- `Y` is the global y-position of the vehicle
+- `psi` is the vehicle yaw angle
+
+The lateral control input is:
+
+```matlab
+u = delta
+```
+
+where:
+
+- `delta` is the front steering angle
+
+The NMPC controller calculates the steering command by minimizing path-tracking error and steering effort over the prediction horizon.
+
+The main NMPC output is:
+
+```matlab
+delta_cmd
+```
+
+This steering command is then passed through:
+
+1. steering delay buffer
+2. steering rate limiter
+3. lateral plant model
+
+---
+
+## Longitudinal PID Controller
+
+The longitudinal controller is responsible for tracking the reference vehicle speed.
+
+The speed tracking error is:
+
+```matlab
+e_v = v_ref - v
+```
+
+where:
+
+- `v_ref` is the reference speed
+- `v` is the current vehicle speed
+
+The PID controller calculates the desired longitudinal acceleration:
+
+```matlab
+a_des = kp * e_v + ki * integral(e_v) + kd * d(e_v)/dt
+```
+
+The PID function interface is:
+
+```matlab
+[a_des, lon] = PID_controller(v_ref, v, lon, dt)
+```
+
+The PID output is a desired net acceleration correction only.
+
+Resistance compensation is not added inside the PID controller. Instead, resistance is added later by the longitudinal force-balance model:
+
+```matlab
+F_required = M * a_des + F_resist
+```
+
+This separation means:
+
+- the controller decides the desired acceleration
+- the plant decides the force required to achieve it
+
+---
+
+## Plant Model
+
+The plant model simulates how the vehicle responds to the controller commands.
+
+The plant includes:
+
+- lateral vehicle response
+- longitudinal force balance
+- actuator delay
+- steering rate limits
+- throttle/brake lookup behaviour
+
+### Lateral Plant
+
+The lateral plant can be selected using:
 
 ```matlab
 cfg.plant.lateral_model = "dynamic";
 ```
+
+Available options:
+
+| Model | Description |
+|---|---|
+| `dynamic` | Nonlinear tire-force model using `lateral_tire_model.m` |
+| `bicycle_linear` | Linear bicycle tire-force model with force saturation |
+
+The lateral execution chain is:
+
+```text
+reference path
+  -> lateral controller
+  -> steering delay buffer
+  -> steering rate limit
+  -> lateral plant
+  -> coupled_bicycle_dynamics
+```
+
+### Longitudinal Plant
+
+The longitudinal plant converts the desired acceleration into a required force.
+
+The main force-balance equation is:
+
+```matlab
+F_required = M * a_des + F_resist
+```
+
+where:
+
+- `F_required` is the required longitudinal force
+- `M` is the vehicle mass
+- `a_des` is the desired acceleration from the PID controller
+- `F_resist` is the resistive force
+
+The longitudinal execution chain is:
+
+```text
+v_ref, v
+  -> PID controller
+  -> a_des
+  -> longitudinal delay buffer
+  -> force-balance model
+  -> actuator branch selection: drive / coast / brake
+  -> 1D inverse lookup: force to command
+  -> pedal publish scaling
+  -> 1D forward lookup: command to actual force
+  -> coupled_bicycle_dynamics
+```
+
+---
+
+## Longitudinal Lookup Logic
+
+The longitudinal actuator model uses a 1D lookup-based structure.
+
+The force demand is first calculated as:
+
+```matlab
+F_required = M * a_des + F_resist;
+```
+
+Then the model selects one of three actuator branches:
+
+- `drive`
+- `coast`
+- `brake`
+
+For drive or brake operation, the required force is converted into a map command using 1D interpolation.
+
+The map command is then converted into a published pedal percentage. Finally, the achieved force is re-evaluated using the matching 1D forward map.
+
+This makes the inverse lookup and forward execution consistent with each other.
+
+---
+
+## Pedal Minimum Effective Logic
+
+The model uses map-derived minimum effective pedal thresholds.
+
+The relevant parameters are loaded in:
+
+```matlab
+model/load_vehicle_params.m
+```
+
+The main thresholds are:
+
+- `veh.acc.pedal_min_publish_from_map`
+- `veh.brk.pedal_min_publish_from_map`
+- `veh.acc.pedal_min_effective`
+- `veh.brk.pedal_min_effective`
+- `veh.acc.force_min_effective`
+- `veh.brk.force_min_effective`
+
+Current behaviour:
+
+- below the map-derived minimum effective force, inverse lookup returns `0`
+- below the map-derived minimum effective command, forward lookup returns `0`
+- coast is explicitly represented
+- drive/coast/brake switching uses hysteresis
+
+---
 
 ## Quick Start
 
@@ -108,153 +341,23 @@ main
 
 This will:
 
-- load the reference path and speed reference
+- load the reference path
+- load the reference speed
 - load vehicle and actuator map data
 - run one closed-loop simulation
-- save plots and `result.mat` under `run/single_run/<timestamp>_<controller>_<plant>/`
+- save plots and results under the `run/` folder
 
-The run tag now includes the plant type, so `dynamic` and `bicycle_linear` results are no longer mixed together in names or plot titles.
-
-## Control And Plant Signal Chain
-
-### Lateral
-
-The current lateral execution chain is:
-
-```text
-reference path
-  -> lateral controller
-  -> steering delay buffer
-  -> steering rate limit
-  -> lateral plant ("dynamic" or "bicycle_linear")
-  -> coupled_bicycle_dynamics
-```
-
-`lateral_model.m` is now the plant wrapper. It selects:
-
-- `dynamic` -> `lateral_tire_model.m`
-- `bicycle_linear` -> linear tire model inside `lateral_model.m`
-
-Both plant options then pass the computed tire forces into the same coupled vehicle dynamics.
-
-Low-speed tire-force fade-in is applied in both plant variants to reduce unrealistic yaw oscillation near standstill.
-
-### Longitudinal
-
-The current longitudinal chain is:
-
-```text
-v_ref, v
-  -> longitudinal controller
-  -> a_des
-  -> longitudinal delay buffer
-  -> force-balance model
-  -> actuator branch selection: drive / coast / brake
-  -> 1D inverse lookup: force -> map command
-  -> pedal publish scaling
-  -> 1D forward lookup: map command -> actual force
-  -> coupled_bicycle_dynamics
-```
-
-This logic is implemented in [model/longitudinal_model.m](/f:/Controller_GDP/model/longitudinal_model.m).
-
-## Longitudinal Lookup Logic
-
-The longitudinal lookup has been simplified to a fully 1D and self-consistent structure.
-
-Teacher-provided mapping idea:
-
-```matlab
-ACC_req = interp1(Force_full, Acc_full, Ftractive);
-ACC_pct = ACC_req / max(Acc_full) * 0.6;
-```
-
-The current implementation follows that same structure, but adds execution-side consistency and actuator gating:
-
-1. Compute required total drive/brake force from force balance:
-
-```matlab
-F_required = M * a_des + F_resist;
-```
-
-2. Select actuator branch with hysteresis:
-
-- `drive`
-- `coast`
-- `brake`
-
-3. For `drive` or `brake`, invert force to map command with a 1D interpolation.
-
-4. Convert the internal map command to published pedal percentage using the 0.6 publish cap.
-
-5. Re-evaluate the achieved force with the matching 1D forward map.
-
-This means inverse lookup and forward execution use the same reduced 1D map, which is the main reason the current actuator behavior is much easier to debug.
-
-## Pedal Minimum Effective Logic
-
-The current code no longer inserts an artificial continuous small-force segment at the low end.
-
-Instead, [model/load_vehicle_params.m](/f:/Controller_GDP/model/load_vehicle_params.m) derives low-end thresholds directly from the lookup tables:
-
-- `veh.acc.pedal_min_publish_from_map`
-- `veh.brk.pedal_min_publish_from_map`
-- `veh.acc.pedal_min_effective`
-- `veh.brk.pedal_min_effective`
-- `veh.acc.force_min_effective`
-- `veh.brk.force_min_effective`
-
-Current behavior:
-
-- below the map-derived minimum effective force, inverse lookup returns `0`
-- below the map-derived minimum effective command, forward lookup returns `0`
-- coast is explicitly represented
-- drive/coast/brake switching uses hysteresis through `force_enter` and `force_exit_coast`
-
-So the current logic is:
-
-- no fake tiny throttle below the real map minimum
-- no fake tiny brake below the real map minimum
-- explicit `0 / >= minimum effective pedal` actuator behavior
-
-## PID Interface
-
-`PID_controller.m` now expects:
-
-```matlab
-[a_des, lon] = PID_controller(v_ref, v, lon, dt)
-```
-
-It does not accept zero-argument calls.
-
-The PID output is now a net acceleration correction only:
-
-```matlab
-a_des = kp * ev + ki * integral(ev) + kd * d(ev)/dt
-```
-
-Resistance compensation is not added inside the PID. Resistance is added later by the force-balance actuator model through:
-
-```matlab
-F_required = M * a_des + F_resist
-```
-
-This is important because the longitudinal controller and longitudinal plant are now intentionally separated:
-
-- controller decides the desired net acceleration
-- plant decides what force is needed once resistance is included
-
-## Reference Speed Handling
-
-The simulation smooths the speed reference in the time domain inside [simulation/run_closed_loop.m](/f:/Controller_GDP/simulation/run_closed_loop.m).
-
-This means the raw speed profile is not applied as an instantaneous step at each waypoint. Instead, the reference speed is rate-limited using 85% of the available accel/decel limits.
-
-That smoother is part of the simulation baseline and affects all controller comparisons.
+---
 
 ## Controller Selection
 
-Edit [config/default_config.m](/f:/Controller_GDP/config/default_config.m), for example:
+Edit:
+
+```matlab
+config/default_config.m
+```
+
+Example NMPC + PID setup:
 
 ```matlab
 cfg.controller.lateral = "mpc_kinematic";
@@ -262,13 +365,7 @@ cfg.controller.longitudinal = "pid";
 cfg.plant.lateral_model = "dynamic";
 ```
 
-Typical comparisons:
-
-```matlab
-cfg.controller.lateral = "mpc_kinematic";
-cfg.controller.longitudinal = "pid";
-cfg.plant.lateral_model = "dynamic";
-```
+Alternative plant comparison:
 
 ```matlab
 cfg.controller.lateral = "mpc_kinematic";
@@ -276,54 +373,47 @@ cfg.controller.longitudinal = "pid";
 cfg.plant.lateral_model = "bicycle_linear";
 ```
 
-```matlab
-cfg.controller.lateral = "mpc";
-cfg.controller.longitudinal = "pid";
-cfg.plant.lateral_model = "dynamic";
-```
+---
 
-```matlab
-cfg.controller.lateral = "mpc_combined";
-cfg.controller.longitudinal = "pid";   % ignored by combined MPC
-cfg.plant.lateral_model = "dynamic";
-```
+## Available Controllers
+
+### Lateral Controllers
+
+| Controller | Description |
+|---|---|
+| `stanley` | Heading plus cross-track feedback controller |
+| `pure_pursuit` | Geometric lookahead steering controller |
+| `mpc` | Dynamic-state lateral MPC |
+| `mpc_kinematic` | Kinematic bicycle NMPC with curvature preview |
+| `mpc_combined` | Combined steering and acceleration MPC |
+| `fake_controller` | Debug controller for subsystem testing |
+
+### Longitudinal Controllers
+
+| Controller | Description |
+|---|---|
+| `pid` | PID speed controller producing desired acceleration |
+| `fake_controller` | Debug controller for subsystem testing |
+
+---
 
 ## Outputs
 
-Each `main` run produces:
+Each simulation run produces output files such as:
 
 | File | Description |
 |---|---|
 | `result.mat` | Full saved workspace for the run |
 | `summary.txt` | Key metrics and pass/fail summary |
-| `path_tracking.png` | Reference path vs simulated path |
-| `tracking_errors.png` | CTE, heading error, longitudinal deviation, speed error |
-| `speed_tracking.png` | Speed and longitudinal acceleration |
-| `lateral_dynamics.png` | Commanded/executed steering plus `v_y` and `r` |
-| `execution_timing.png` | Controller execution time against control period |
-| `longitudinal_internal_diagnostics.png` | `F_required`, `F_drive`, lookup requests, and branch mode |
-| `sim_vs_bag.png` | Simulation-vs-bag comparison if bag data exists |
+| `path_tracking.png` | Reference path compared with simulated path |
+| `tracking_errors.png` | Cross-track, heading, longitudinal, and speed errors |
+| `speed_tracking.png` | Vehicle speed and longitudinal acceleration |
+| `lateral_dynamics.png` | Steering, lateral velocity, and yaw-rate behaviour |
+| `execution_timing.png` | Controller execution time |
+| `longitudinal_internal_diagnostics.png` | Force demand, actuator branch, and lookup diagnostics |
+| `sim_vs_bag.png` | Simulation compared with bag data if available |
 
-## Simulation Vs Bag Comparison
-
-The bag comparison plot uses:
-
-- speed
-- steering command
-- throttle
-- brake
-
-Important implementation notes:
-
-- the simulation steering is plotted with a sign flip to match the bag convention
-- the title now includes the controller and plant label passed from `main.m`
-
-This figure is mainly for checking:
-
-- steering amplitude and oscillation
-- speed bias
-- throttle/brake pulse pattern
-- overall mismatch between plant/controller settings and recorded behavior
+---
 
 ## Run Modes
 
@@ -336,7 +426,7 @@ main
 Outputs are saved under:
 
 ```text
-run/single_run/<timestamp>_<controller_tag>/
+run/single_run/
 ```
 
 ### Lateral MPC Comparison
@@ -345,26 +435,24 @@ run/single_run/<timestamp>_<controller_tag>/
 compare_lateral_mpc_variants
 ```
 
-This is the quick script for comparing lateral MPC variants.
-
 ### Tuning Sweep
 
 ```matlab
 run_tuning_sweep
 ```
 
-Use this for broader parameter sweeps once a local baseline is stable.
+---
 
 ## Practical Tuning Guidance
 
-The current practical order is:
+Recommended tuning order:
 
-1. choose the lateral plant you want to trust for tuning
-2. tune lateral controller smoothness and tracking first
-3. lock lateral settings
-4. tune longitudinal controller on top of that baseline
+1. choose the lateral plant model
+2. tune lateral NMPC tracking and smoothness
+3. lock the lateral settings
+4. tune the longitudinal PID controller
 
-### Lateral MPC
+### NMPC Tuning Parameters
 
 Main parameters:
 
@@ -374,17 +462,15 @@ Main parameters:
 - `cfg.mpc_kinematic.N`
 - `cfg.mpc_kinematic.kappa_ff_gain`
 
-Interpretation:
+General interpretation:
 
-- larger `Q` pushes harder on tracking error
-- larger `R` suppresses steering amplitude
-- larger `Rd` suppresses steering variation between steps
+- larger `Q` increases tracking accuracy
+- larger `R` reduces steering magnitude
+- larger `Rd` smooths steering changes
 - larger `N` increases preview horizon
-- larger `kappa_ff_gain` makes curvature feedforward stronger
+- larger `kappa_ff_gain` increases curvature feedforward contribution
 
-If the vehicle still tracks but steering amplitude is too large, the first parameters to revisit are usually `R`, then `Rd`, then the plant choice itself.
-
-### Longitudinal PID
+### PID Tuning Parameters
 
 Main parameters:
 
@@ -392,13 +478,15 @@ Main parameters:
 - `cfg.lon_pid.ki`
 - `cfg.lon_pid.kd`
 
-Interpretation:
+General interpretation:
 
-- increase `kp` first for response strength
-- add `ki` only if there is a persistent steady-state speed bias
-- add `kd` only if proportional control is too oscillatory
+- increase `kp` first for stronger speed response
+- add `ki` only if there is steady-state speed error
+- add `kd` only if the speed response is too oscillatory
 
-Because the actuator model already includes resistance and map deadzone behavior, do not retune PID as if it were directly commanding pedal.
+The PID should not be tuned as if it directly commands pedal percentage because the actuator and resistance behaviour are handled in the plant model.
+
+---
 
 ## Project Structure
 
@@ -462,23 +550,16 @@ Controller_GDP/
     compare_run/
 ```
 
+---
+
 ## Dependencies
 
 - MATLAB R2020b or later recommended
-- Optimization Toolbox for `quadprog`
-- ROS Toolbox if you want to read ROS2 bags directly
+- Optimization Toolbox for MPC/QP-based functions
+- ROS Toolbox if reading ROS2 bag data directly
 
-## Review Notes
+---
 
-After checking the current control and plant chain, there is no obvious blocking logic bug in the updated lookup or plant-selection flow.
+## Notes
 
-Two practical notes are worth keeping in mind:
-
-- the README was previously outdated and did not reflect the current force-balance lookup logic or plant selection
-- run labels previously did not clearly include the lateral plant type, which made dynamic vs bicycle-linear comparisons easy to misread
-
-Both are now aligned with the current codebase.
-
-# NMPC_PID_Controller_GDP
-NMPC and PID based vehicle controller for MSc GDP project
-
+This repository is intended for simulation, controller development, and comparison of NMPC + PID vehicle control behaviour before deployment in the ROS2 vehicle-controller stack.
